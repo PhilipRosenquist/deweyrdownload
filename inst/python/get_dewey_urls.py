@@ -10,7 +10,8 @@ from deweypy.download.synchronous import get_dataset_files
 # Accept api_key and data_id as command line arguments from R via system2()
 api_key = sys.argv[1]
 data_id = sys.argv[2]
-preview = len(sys.argv) > 3 and sys.argv[3] == "preview"
+file_name = sys.argv[3] if sys.argv[3].lower() != "none" else None
+preview = sys.argv[4].lower() == "true"
 
 # Authenticate and fetch file metadata for the dataset
 set_api_key(api_key)
@@ -21,9 +22,12 @@ urls = files[0]["link"] if preview else [f["link"] for f in files]
 
 # Derive a clean parent folder name from the first file's name
 # e.g. "airline-employment-data_0_0_0.snappy.parquet" -> "airline-employment"
-file_name = files[0]["file_name"]
-parent_folder = re.sub(r"[-_]\d.*$", "", file_name)
-parent_folder = re.sub(r"-data$", "", parent_folder) + "-duckdb"
+if not file_name:
+    file_name = files[0]["file_name"]
+    parent_folder = re.sub(r"[-_]\d.*$", "", file_name)
+    parent_folder = re.sub(r"-data$", "", parent_folder) + "-duckdb"
+else:
+    parent_folder = file_name
 
 file_extension = files[0]["file_extension"]
 

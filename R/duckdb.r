@@ -23,16 +23,22 @@
 #'
 #' @keywords internal
 #' @noRd
-get_dewey_urls <- function(api_key, data_id, preview = FALSE) {
+get_dewey_urls <- function(api_key, data_id, file_name = NULL, preview = FALSE) {
   if (!check_uv()) {
     install_uv()
     message("Restarting the terminal will increase speed of future runs")
   }
   data_id <- parse_url(data_id)
   script <- system.file("python/get_dewey_urls.py", package = "deweyr")
-  args <- c("run", "--python", "3.13", script, api_key, data_id)
-  if (preview) args <- c(args, "preview")
-  result_raw <- system2("uv", args = args, stdout = TRUE, stderr = FALSE)
+  args <- c(
+    "run", "--python", "3.13", script,
+    api_key,
+    data_id,
+    ifelse(is.null(file_name), "None", file_name),
+    tolower(as.character(preview))
+  )
+  result_raw <- system2("uv", args = args, stdout = TRUE, stderr = "stderr.txt")
+  cat(readLines("stderr.txt"), sep = "\n")
   jsonlite::fromJSON(paste(result_raw, collapse = ""))
 }
 
@@ -73,24 +79,21 @@ get_dewey_urls <- function(api_key, data_id, preview = FALSE) {
 #' }
 #'
 #' @export
-preview_dewey_duck <- function(api_key, data_id, limit = 10, where = NULL) {
-    result <- get_dewey_urls(api_key, data_id, preview = TRUE)
-    urls <- result$urls
-    file_extension <- result$file_extension
+preview_dewey_duck <- function(api_key, data_id, limit = 10) {
+  result <- get_dewey_urls(api_key, data_id, preview = TRUE)
+  urls <- result$urls
+  file_extension <- result$file_extension
 
-    read_fn <- ifelse(file_extension == ".snappy.parquet", "read_parquet", "read_csv")
-    urls_sql <- paste0("['", paste(urls, collapse = "','"), "']")
+  read_fn <- ifelse(file_extension == ".snappy.parquet", "read_parquet", "read_csv")
+  urls_sql <- paste0("['", paste(urls, collapse = "','"), "']")
 
-    # Build optional WHERE clause — user supplied, no validation
-    where_clause <- if (!is.null(where)) paste("WHERE", where) else ""
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con))
+  DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs;")
 
-    con <- DBI::dbConnect(duckdb::duckdb())
-    on.exit(DBI::dbDisconnect(con))
-    DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs;")
-
-    tibble::as_tibble(DBI::dbGetQuery(con, glue::glue(
-        "SELECT * FROM {read_fn}({urls_sql}) {where_clause} LIMIT {limit}"
-    )))
+  tibble::as_tibble(DBI::dbGetQuery(con, glue::glue(
+    "SELECT * FROM {read_fn}({urls_sql}) LIMIT {limit}"
+  )))
 }
 
 #' Download a Dewey dataset to local parquet files
@@ -139,21 +142,21 @@ preview_dewey_duck <- function(api_key, data_id, limit = 10, where = NULL) {
 #'
 #' # Filter and select columns
 #' download_dewey_duck(api_key, data_id, base_dir,
-#'     partition = "MONTH_DATE_PARSED",
-#'     where = "CARRIER_GROUP = 'Major'",
-#'     select = c(1:3, "TOTAL")
+#'   partition = "MONTH_DATE_PARSED",
+#'   where = "CARRIER_GROUP = 'Major'",
+#'   select = c(1:3, "TOTAL")
 #' )
 #'
 #' # Download and read in one step
 #' df <- download_dewey_duck(api_key, data_id, partition = "MONTH_DATE_PARSED") |>
-#'     read_dewey()
+#'   read_dewey()
 #' }
 #'
 #' @export
-download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(), partition, overwrite = FALSE, where = NULL, select = NULL) {
-  result <- get_dewey_urls(api_key, data_id)
+download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(), partition, overwrite = FALSE, file_name = NULL, where = NULL, select = NULL) {
+  result <- get_dewey_urls(api_key, data_id, file_name = file_name)
   cols <- colnames(preview_dewey_duck(api_key, data_id, limit = 0))
-  
+
   if (missing(partition)) {
     if (!is.null(result$partition_key) && result$partition_key %in% cols) {
       partition_col <- result$partition_key
@@ -169,7 +172,7 @@ download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(
   } else {
     partition_col <- NULL # explicit NULL, User wants no partitioning
   }
-  
+
   # Resolve select — accepts c() with mixed indices and column names e.g. c(1:3, 7, "CARRIER_NAME")
   if (!is.null(select)) {
     select_cols <- c()
@@ -191,7 +194,7 @@ download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(
     }
     # Remove duplicates
     select_cols <- unique(select_cols)
-    
+
     # Always include partition column if partitioning
     if (!is.null(partition_col) && !partition_col %in% select_cols) {
       message("Adding '", partition_col, "' to select as it is required for partitioning.")
@@ -201,34 +204,34 @@ download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(
   } else {
     select_sql <- "*"
   }
-  
+
   # Passed Checks, now we can download
   urls <- result$urls
   parent_folder <- result$parent_folder
   file_extension <- result$file_extension
-  
+
   out <- file.path(output_dir, parent_folder)
   out_read <- gsub("\\\\", "/", out)
-  
+
   # Build optional WHERE clause — user supplied, no validation
   where_clause <- if (!is.null(where)) paste("WHERE", where) else ""
-  
+
   # Check if folder already exists to prevent duplicate/mixed data
   if (dir.exists(out) && !overwrite) {
     stop("'", out, "' already exists. Pass overwrite = TRUE to overwrite.")
   } else if (dir.exists(out) && overwrite) {
     unlink(out, recursive = TRUE)
   }
-  
+
   dir.create(out, recursive = TRUE, showWarnings = FALSE)
-  
+
   con <- DBI::dbConnect(duckdb::duckdb())
   on.exit(DBI::dbDisconnect(con))
   DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs;")
-  
+
   read_fn <- ifelse(file_extension == ".snappy.parquet", "read_parquet", "read_csv")
   urls_sql <- paste0("['", paste(urls, collapse = "','"), "']")
-  
+
   if (!is.null(partition_col)) {
     DBI::dbExecute(con, glue::glue(
       "COPY (
@@ -255,7 +258,7 @@ download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(
        OVERWRITE_OR_IGNORE true)"
     ))
   }
-  
+
   message("Downloaded to: ", out)
   invisible(out)
 }
@@ -296,7 +299,7 @@ download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(
 #'
 #' # Pipe directly from download
 #' df <- download_dewey_duck(api_key, data_id, base_dir, partition = "MONTH_DATE_PARSED") |>
-#'     read_dewey_duck()
+#'   read_dewey_duck()
 #'
 #' # Filter on read
 #' df <- read_dewey_duck("C:/dewey-downloads/airline-employment", where = "CARRIER_GROUP = 'Major'")
@@ -304,15 +307,15 @@ download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(
 #'
 #' @export
 read_dewey_duck <- function(path, where = NULL) {
-    path_read <- gsub("\\\\", "/", path)
+  path_read <- gsub("\\\\", "/", path)
 
-    # Build optional WHERE clause — user supplied, no validation
-    where_clause <- if (!is.null(where)) paste("WHERE", where) else ""
+  # Build optional WHERE clause — user supplied, no validation
+  where_clause <- if (!is.null(where)) paste("WHERE", where) else ""
 
-    con <- DBI::dbConnect(duckdb::duckdb())
-    on.exit(DBI::dbDisconnect(con))
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con))
 
-    tibble::as_tibble(DBI::dbGetQuery(con, glue::glue(
-        "SELECT * FROM read_parquet('{path_read}/**/*.parquet', hive_partitioning=true) {where_clause}"
-    )))
+  tibble::as_tibble(DBI::dbGetQuery(con, glue::glue(
+    "SELECT * FROM read_parquet('{path_read}/**/*.parquet', hive_partitioning=true) {where_clause}"
+  )))
 }
