@@ -79,7 +79,7 @@ con <- DBI::dbConnect(duckdb::duckdb())
 
 ### GROUP BY Aggregations
 
-Summarise average full-time and part-time employees per carrier:
+Summarize average full-time and part-time employees per carrier:
 
 ```{r, eval=FALSE}
 df_avg <- tibble::as_tibble(DBI::dbGetQuery(con, glue(
@@ -131,10 +131,10 @@ Use `read_dewey()` for convenience on small or pre-filtered datasets. Use raw Du
 
 ### Overkill: Rank Carriers by Growth
 
-For the truly unhinged — rank carriers by full-time employee growth rate over time, 
+For a more advanced example — rank carriers by full-time employee growth rate over time, 
 using a window function to compute the first and last recorded value per carrier:
 
-While this looks dumb, SQL is much quicker than R's tidyverse for massive datasets. Should you have a predictable transformation, it may be wise to do it while you read in using duckdb.
+Although this example is more complex than most users will need, SQL is much quicker than R's tidyverse for massive datasets. Should you have a predictable transformation, it may be wise to do it while you read in using duckdb.
 
 ```{r, eval=FALSE}
 df_growth <- tibble::as_tibble(DBI::dbGetQuery(con, glue(
