@@ -24,12 +24,16 @@
 #' @keywords internal
 #' @noRd
 get_dewey_urls <- function(api_key, data_id, preview = FALSE) {
-    data_id <- parse_url(data_id)
-    script <- system.file("python/get_dewey_urls.py", package = "deweyr")
-    args <- c("run", "--python", "3.13", script, api_key, data_id)
-    if (preview) args <- c(args, "preview")
-    result_raw <- system2("uv", args = args, stdout = TRUE, stderr = FALSE)
-    jsonlite::fromJSON(result_raw)
+  if (!check_uv()) {
+    install_uv()
+    message("Restarting the terminal will increase speed of future runs")
+  }
+  data_id <- parse_url(data_id)
+  script <- system.file("python/get_dewey_urls.py", package = "deweyr")
+  args <- c("run", "--python", "3.13", script, api_key, data_id)
+  if (preview) args <- c(args, "preview")
+  result_raw <- system2("uv", args = args, stdout = TRUE, stderr = FALSE)
+  jsonlite::fromJSON(paste(result_raw, collapse = ""))
 }
 
 #' Preview a Dewey dataset
@@ -99,7 +103,8 @@ preview_dewey_duck <- function(api_key, data_id, limit = 10, where = NULL) {
 #' @param api_key Your Dewey API key. Store in \code{.Renviron} as
 #'   \code{DEWEY_API_KEY} and access with \code{Sys.getenv("DEWEY_API_KEY")}.
 #' @param data_id The Dewey dataset ID (e.g. \code{"prj_xxx__fldr_yyy"}).
-#' @param output_dir Path to the base directory where the dataset folder will be created.
+#' @param output_dir Character string specifying where to download files.
+#'   Default is a "dewey-downloads" folder in the current working directory.
 #' @param partition Column name to partition by. If omitted, deweyr will use
 #'   Dewey's suggested partition column if one exists, otherwise it will error.
 #'   Pass \code{NULL} explicitly to download as a single unpartitioned parquet file.
@@ -122,16 +127,15 @@ preview_dewey_duck <- function(api_key, data_id, limit = 10, where = NULL) {
 #' \dontrun{
 #' api_key <- Sys.getenv("DEWEY_API_KEY")
 #' data_id <- "prj_xxx__fldr_yyy"
-#' base_dir <- "C:/dewey-downloads"
 #'
 #' # Use dewey's default partition
-#' download_dewey_duck(api_key, data_id, base_dir)
+#' download_dewey_duck(api_key, data_id)
 #'
 #' # Supply your own partition column
-#' download_dewey_duck(api_key, data_id, base_dir, partition = "MONTH_DATE_PARSED")
+#' download_dewey_duck(api_key, data_id, partition = "MONTH_DATE_PARSED")
 #'
 #' # No partitioning
-#' download_dewey_duck(api_key, data_id, base_dir, partition = NULL)
+#' download_dewey_duck(api_key, data_id, partition = NULL)
 #'
 #' # Filter and select columns
 #' download_dewey_duck(api_key, data_id, base_dir,
@@ -141,93 +145,93 @@ preview_dewey_duck <- function(api_key, data_id, limit = 10, where = NULL) {
 #' )
 #'
 #' # Download and read in one step
-#' df <- download_dewey_duck(api_key, data_id, base_dir, partition = "MONTH_DATE_PARSED") |>
+#' df <- download_dewey_duck(api_key, data_id, partition = "MONTH_DATE_PARSED") |>
 #'     read_dewey()
 #' }
 #'
 #' @export
-download_dewey_duck <- function(api_key, data_id, output_dir, partition, overwrite = FALSE, where = NULL, select = NULL) {
-    result <- get_dewey_urls(api_key, data_id)
-    cols <- colnames(preview_dewey_duck(api_key, data_id, limit = 0))
-
-    if (missing(partition)) {
-        if (!is.null(result$partition_key) && result$partition_key %in% cols) {
-            partition_col <- result$partition_key
-            message("Partitioning by '", partition_col, "' (dewey default)")
-        } else {
-            stop("No default partition found. Available columns: ", paste(cols, collapse = ", "), ". Supply a column name or pass partition = NULL for no partitioning.")
-        }
-    } else if (!is.null(partition)) {
-        if (!partition %in% cols) {
-            stop("'", partition, "' is not a valid column. Available columns: ", paste(cols, collapse = ", "))
-        }
-        partition_col <- partition
+download_dewey_duck <- function(api_key, data_id, output_dir = get_download_dir(), partition, overwrite = FALSE, where = NULL, select = NULL) {
+  result <- get_dewey_urls(api_key, data_id)
+  cols <- colnames(preview_dewey_duck(api_key, data_id, limit = 0))
+  
+  if (missing(partition)) {
+    if (!is.null(result$partition_key) && result$partition_key %in% cols) {
+      partition_col <- result$partition_key
+      message("Partitioning by '", partition_col, "' (dewey default)")
     } else {
-        partition_col <- NULL # explicit NULL, User wants no partitioning
+      stop("No default partition found. Available columns: ", paste(cols, collapse = ", "), ". Supply a column name or pass partition = NULL for no partitioning.")
     }
-
-    # Resolve select — accepts c() with mixed indices and column names e.g. c(1:3, 7, "CARRIER_NAME")
-    if (!is.null(select)) {
-        select_cols <- c()
-        for (s in select) {
-            num <- suppressWarnings(as.numeric(s))
-            if (!is.na(num)) {
-                # It's an index
-                if (num < 1 || num > length(cols)) {
-                    stop("select index ", num, " out of range. Dataset has ", length(cols), " columns.")
-                }
-                select_cols <- c(select_cols, cols[num])
-            } else {
-                # It's a column name — validate
-                if (!s %in% cols) {
-                    stop("'", s, "' is not a valid column. Available columns: ", paste(cols, collapse = ", "))
-                }
-                select_cols <- c(select_cols, s)
-            }
+  } else if (!is.null(partition)) {
+    if (!partition %in% cols) {
+      stop("'", partition, "' is not a valid column. Available columns: ", paste(cols, collapse = ", "))
+    }
+    partition_col <- partition
+  } else {
+    partition_col <- NULL # explicit NULL, User wants no partitioning
+  }
+  
+  # Resolve select — accepts c() with mixed indices and column names e.g. c(1:3, 7, "CARRIER_NAME")
+  if (!is.null(select)) {
+    select_cols <- c()
+    for (s in select) {
+      num <- suppressWarnings(as.numeric(s))
+      if (!is.na(num)) {
+        # It's an index
+        if (num < 1 || num > length(cols)) {
+          stop("select index ", num, " out of range. Dataset has ", length(cols), " columns.")
         }
-        # Remove duplicates
-        select_cols <- unique(select_cols)
-
-        # Always include partition column if partitioning
-        if (!is.null(partition_col) && !partition_col %in% select_cols) {
-            message("Adding '", partition_col, "' to select as it is required for partitioning.")
-            select_cols <- c(select_cols, partition_col)
+        select_cols <- c(select_cols, cols[num])
+      } else {
+        # It's a column name — validate
+        if (!s %in% cols) {
+          stop("'", s, "' is not a valid column. Available columns: ", paste(cols, collapse = ", "))
         }
-        select_sql <- paste(select_cols, collapse = ", ")
-    } else {
-        select_sql <- "*"
+        select_cols <- c(select_cols, s)
+      }
     }
-
-    # Passed Checks, now we can download
-    urls <- result$urls
-    parent_folder <- result$parent_folder
-    file_extension <- result$file_extension
-
-    out <- file.path(output_dir, parent_folder)
-    out_read <- gsub("\\\\", "/", out)
-
-    # Build optional WHERE clause — user supplied, no validation
-    where_clause <- if (!is.null(where)) paste("WHERE", where) else ""
-
-    # Check if folder already exists to prevent duplicate/mixed data
-    if (dir.exists(out) && !overwrite) {
-        stop("'", out, "' already exists. Pass overwrite = TRUE to overwrite.")
-    } else if (dir.exists(out) && overwrite) {
-        unlink(out, recursive = TRUE)
+    # Remove duplicates
+    select_cols <- unique(select_cols)
+    
+    # Always include partition column if partitioning
+    if (!is.null(partition_col) && !partition_col %in% select_cols) {
+      message("Adding '", partition_col, "' to select as it is required for partitioning.")
+      select_cols <- c(select_cols, partition_col)
     }
-
-    dir.create(out, recursive = TRUE, showWarnings = FALSE)
-
-    con <- DBI::dbConnect(duckdb::duckdb())
-    on.exit(DBI::dbDisconnect(con))
-    DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs;")
-
-    read_fn <- ifelse(file_extension == ".snappy.parquet", "read_parquet", "read_csv")
-    urls_sql <- paste0("['", paste(urls, collapse = "','"), "']")
-
-    if (!is.null(partition_col)) {
-        DBI::dbExecute(con, glue::glue(
-            "COPY (
+    select_sql <- paste(select_cols, collapse = ", ")
+  } else {
+    select_sql <- "*"
+  }
+  
+  # Passed Checks, now we can download
+  urls <- result$urls
+  parent_folder <- result$parent_folder
+  file_extension <- result$file_extension
+  
+  out <- file.path(output_dir, parent_folder)
+  out_read <- gsub("\\\\", "/", out)
+  
+  # Build optional WHERE clause — user supplied, no validation
+  where_clause <- if (!is.null(where)) paste("WHERE", where) else ""
+  
+  # Check if folder already exists to prevent duplicate/mixed data
+  if (dir.exists(out) && !overwrite) {
+    stop("'", out, "' already exists. Pass overwrite = TRUE to overwrite.")
+  } else if (dir.exists(out) && overwrite) {
+    unlink(out, recursive = TRUE)
+  }
+  
+  dir.create(out, recursive = TRUE, showWarnings = FALSE)
+  
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con))
+  DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs;")
+  
+  read_fn <- ifelse(file_extension == ".snappy.parquet", "read_parquet", "read_csv")
+  urls_sql <- paste0("['", paste(urls, collapse = "','"), "']")
+  
+  if (!is.null(partition_col)) {
+    DBI::dbExecute(con, glue::glue(
+      "COPY (
         SELECT {select_sql} FROM {read_fn}({urls_sql})
         {where_clause}
       )
@@ -237,10 +241,10 @@ download_dewey_duck <- function(api_key, data_id, output_dir, partition, overwri
        ROW_GROUP_SIZE 256000,
        COMPRESSION ZSTD,
        OVERWRITE_OR_IGNORE true)"
-        ))
-    } else {
-        DBI::dbExecute(con, glue::glue(
-            "COPY (
+    ))
+  } else {
+    DBI::dbExecute(con, glue::glue(
+      "COPY (
         SELECT {select_sql} FROM {read_fn}({urls_sql})
         {where_clause}
       )
@@ -249,11 +253,11 @@ download_dewey_duck <- function(api_key, data_id, output_dir, partition, overwri
        ROW_GROUP_SIZE 256000,
        COMPRESSION ZSTD,
        OVERWRITE_OR_IGNORE true)"
-        ))
-    }
-
-    message("Downloaded to: ", out)
-    invisible(out)
+    ))
+  }
+  
+  message("Downloaded to: ", out)
+  invisible(out)
 }
 
 #' Read a downloaded Dewey dataset

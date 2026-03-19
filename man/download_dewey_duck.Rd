@@ -7,7 +7,7 @@
 download_dewey_duck(
   api_key,
   data_id,
-  output_dir,
+  output_dir = get_download_dir(),
   partition,
   overwrite = FALSE,
   where = NULL,
@@ -20,7 +20,8 @@ download_dewey_duck(
 
 \item{data_id}{The Dewey dataset ID (e.g. \code{"prj_xxx__fldr_yyy"}).}
 
-\item{output_dir}{Path to the base directory where the dataset folder will be created.}
+\item{output_dir}{Character string specifying where to download files.
+Default is a "dewey-downloads" folder in the current working directory.}
 
 \item{partition}{Column name to partition by. If omitted, deweyr will use
 Dewey's suggested partition column if one exists, otherwise it will error.
@@ -50,16 +51,15 @@ into \code{read_dewey()}.
 \dontrun{
 api_key <- Sys.getenv("DEWEY_API_KEY")
 data_id <- "prj_xxx__fldr_yyy"
-base_dir <- "C:/dewey-downloads"
 
 # Use dewey's default partition
-download_dewey_duck(api_key, data_id, base_dir)
+download_dewey_duck(api_key, data_id)
 
 # Supply your own partition column
-download_dewey_duck(api_key, data_id, base_dir, partition = "MONTH_DATE_PARSED")
+download_dewey_duck(api_key, data_id, partition = "MONTH_DATE_PARSED")
 
 # No partitioning
-download_dewey_duck(api_key, data_id, base_dir, partition = NULL)
+download_dewey_duck(api_key, data_id, partition = NULL)
 
 # Filter and select columns
 download_dewey_duck(api_key, data_id, base_dir,
@@ -69,7 +69,7 @@ download_dewey_duck(api_key, data_id, base_dir,
 )
 
 # Download and read in one step
-df <- download_dewey_duck(api_key, data_id, base_dir, partition = "MONTH_DATE_PARSED") |>
+df <- download_dewey_duck(api_key, data_id, partition = "MONTH_DATE_PARSED") |>
     read_dewey()
 }
 

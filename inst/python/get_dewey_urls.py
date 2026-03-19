@@ -23,7 +23,7 @@ urls = files[0]["link"] if preview else [f["link"] for f in files]
 # e.g. "airline-employment-data_0_0_0.snappy.parquet" -> "airline-employment"
 file_name = files[0]["file_name"]
 parent_folder = re.sub(r"[-_]\d.*$", "", file_name)
-parent_folder = re.sub(r"-data$", "", parent_folder)
+parent_folder = re.sub(r"-data$", "", parent_folder) + "-duckdb"
 
 file_extension = files[0]["file_extension"]
 
