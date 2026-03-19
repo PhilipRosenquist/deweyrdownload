@@ -46,7 +46,7 @@ If you already have Python and deweypy installed:
 ```r
 library(deweyr)
 
-dewey_download_py(
+download_dewey_py(
   api_key = "your-api-key",
   folder_id = "your-folder-id"
 )
@@ -82,53 +82,6 @@ download_dewey(
   folder_id = "https://api.deweydata.io/api/v1/external/data/abc123"
 )
 ```
-
-## Duck DB Options
-
-### Download from Duck DB
-
-```r
-download_dewey_duck(
-  api_key = "your-api-key",
-  data_id = "dataset-from-deweydata",
-  output_dir = "base-directory-to-place-download",
-  partition = "column-name-to-partition-by",
-  where = NULL,
-  select = NULL,
-  overwrite=FALSE
-)
-```
-
-### Read Using Duck DB
-
-```r
-read_dewey_duck(
-  path = "path-to-read-in-already-downloaded-data",
-  where = NULL
-)
-```
-
-### Get Dewey URL 
-
-```r
-get_dewey_urls_duck(
-  api_key = "your-api-key",
-  data_id = "dataset-from-deweydata",
-  preview = FALSE
-)
-```
-
-### Preview with Duck DB
-
-```r
-preview_dewey_duck(
-  api_key = "your-api-key",
-  data_id = "dataset-from-deweydata",
-  limit = 10,
-  where = NULL
-)
-```
-
 ## Advanced Options
 
 ### Multi-threaded Downloads
@@ -168,6 +121,53 @@ download_dewey(
   partition_key_before = "2024-03-31"
 )
 ```
+
+## Duck DB Options
+
+### Download from Duck DB
+
+```r
+download_dewey_duck(
+  api_key = "your-api-key",
+  data_id = "dataset-from-deweydata",
+  partition = "column-name-to-partition-by",
+  where = NULL,
+  select = NULL,
+  overwrite=FALSE
+)
+```
+
+### Read Using Duck DB
+
+```r
+read_dewey_duck(
+  path = "path-to-read-in-already-downloaded-data",
+  where = NULL
+)
+```
+
+### Get Dewey URL 
+
+```r
+get_dewey_urls_duck(
+  api_key = "your-api-key",
+  data_id = "dataset-from-deweydata",
+  preview = FALSE
+)
+```
+
+### Preview with Duck DB
+
+```r
+preview_dewey_duck(
+  api_key = "your-api-key",
+  data_id = "dataset-from-deweydata",
+  limit = 10,
+  where = NULL
+)
+```
+
+
 ---
 
 **Note:** This package requires an active Dewey account and API key. Visit [Dewey](https://deweydata.io) to learn more.
